@@ -208,3 +208,7 @@ __marimo__/
 
 # TaskVine
 vine-run-info
+conda_spec.yml
+*.tar.gz
+data/
+*.csv

@@ -13,15 +13,17 @@ https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
 import os
 import random
 import time
+from argparse import ArgumentParser, Namespace
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
-model_urls = {
+MODEL_URLS = {
     "resnet18": "https://download.pytorch.org/models/resnet18-5c106cde.pth",
     "resnet34": "https://download.pytorch.org/models/resnet34-333f7ec4.pth",
     "resnet50": "https://download.pytorch.org/models/resnet50-19c8e357.pth",
@@ -32,6 +34,18 @@ model_urls = {
     "wide_resnet50_2": "https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth",
     "wide_resnet101_2": "https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth",
 }
+
+# Hyperparameters
+RANDOM_SEED = 1
+LEARNING_RATE = 0.0001
+BATCH_SIZE = 128
+NUM_EPOCHS = 20
+
+# Architecture
+NUM_FEATURES = 28 * 28
+NUM_CLASSES = 10
+GRAYSCALE = True
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def set_global_seed(seed: int = 42):
@@ -58,12 +72,6 @@ def set_global_seed(seed: int = 42):
 
     # Optional: fix Python hash seed (affects some internal orderings)
     os.environ["PYTHONHASHSEED"] = str(seed)
-
-
-set_global_seed(42)
-
-if torch.cuda.is_available():
-    torch.backends.cudnn.deterministic = True
 
 
 class BasicBlock(nn.Module):
@@ -140,11 +148,13 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
+    def __init__(self, block, num_blocks, num_classes=10, in_channels=3):
         super(ResNet, self).__init__()
         self.in_planes = 64
 
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(64)
         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
@@ -168,16 +178,17 @@ class ResNet(nn.Module):
         out = self.layer4(out)
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
-        out = self.linear(out)
-        return out
+        logits = self.linear(out)
+        probas = F.softmax(logits, dim=1)
+        return logits, probas
 
 
 def ResNet18():
     return ResNet(BasicBlock, [2, 2, 2, 2])
 
 
-def ResNet34():
-    return ResNet(BasicBlock, [3, 4, 6, 3])
+def ResNet34(in_channels=1):
+    return ResNet(BasicBlock, [3, 4, 6, 3], in_channels=in_channels)
 
 
 def ResNet50():
@@ -192,85 +203,96 @@ def ResNet152():
     return ResNet(Bottleneck, [3, 8, 36, 3])
 
 
-# Hyperparameters
-RANDOM_SEED = 1
-LEARNING_RATE = 0.0001
-BATCH_SIZE = 128
-NUM_EPOCHS = 20
-
-# Architecture
-NUM_FEATURES = 28 * 28
-NUM_CLASSES = 10
-GRAYSCALE = True
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-train_dataset = datasets.MNIST(
-    root="data", train=True, transform=transforms.ToTensor(), download=True
-)
-
-test_dataset = datasets.MNIST(root="data", train=False, transform=transforms.ToTensor())
+def parse_args() -> Namespace:
+    parser = ArgumentParser()
+    parser.add_argument("--index", type=str, default=0)
+    parser.add_argument("--indices-file", type=str, default="indices.csv")
+    return parser.parse_args()
 
 
-train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+def main():
+    args = parse_args()
 
-test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    if torch.cuda.is_available():
+        torch.backends.cudnn.deterministic = True
 
-model = ResNet34()
+    indexes_df = pd.read_csv(args.indices_file)
 
-if torch.cuda.is_available():
-    model = model.cuda()
+    train_dataset = datasets.MNIST(
+        root="data", train=True, transform=transforms.ToTensor()
+    )
+    test_dataset = datasets.MNIST(
+        root="data", train=False, transform=transforms.ToTensor()
+    )
 
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    subset1 = Subset(train_dataset, indexes_df[args.index])
 
+    train_loader = DataLoader(dataset=subset1, batch_size=BATCH_SIZE, shuffle=True)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-def compute_accuracy(model, data_loader, device):
-    correct_pred, num_examples = 0, 0
-    for i, (features, targets) in enumerate(data_loader):
-        features = features.to(device)
-        targets = targets.to(device)
+    model = ResNet34()
 
-        logits, probas = model(features)
-        _, predicted_labels = torch.max(probas, 1)
-        num_examples += targets.size(0)
-        correct_pred += (predicted_labels == targets).sum()
-    return correct_pred.float() / num_examples * 100
+    if torch.cuda.is_available():
+        model = model.cuda()
 
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-start_time = time.time()
-for epoch in range(NUM_EPOCHS):
-    model.train()
-    for batch_idx, (features, targets) in enumerate(train_loader):
-        features = features.to(DEVICE)
-        targets = targets.to(DEVICE)
+    def compute_accuracy(model, data_loader, device):
+        correct_pred, num_examples = 0, 0
+        for i, (features, targets) in enumerate(data_loader):
+            features = features.to(device)
+            targets = targets.to(device)
 
-        ### FORWARD AND BACK PROP
-        logits, probas = model(features)
-        cost = F.cross_entropy(logits, targets)
-        optimizer.zero_grad()
+            logits, probas = model(features)
+            _, predicted_labels = torch.max(probas, 1)
+            num_examples += targets.size(0)
+            correct_pred += (predicted_labels == targets).sum()
+        return correct_pred.float() / num_examples * 100
 
-        cost.backward()
+    start_time = time.time()
+    for epoch in range(NUM_EPOCHS):
+        model.train()
+        for batch_idx, (features, targets) in enumerate(train_loader):
+            features = features.to(DEVICE)
+            targets = targets.to(DEVICE)
 
-        ### UPDATE MODEL PARAMETERS
-        optimizer.step()
+            ### FORWARD AND BACK PROP
+            logits, probas = model(features)
+            cost = F.cross_entropy(logits, targets)
+            optimizer.zero_grad()
 
-        ### LOGGING
-        if not batch_idx % 50:
+            cost.backward()
+
+            ### UPDATE MODEL PARAMETERS
+            optimizer.step()
+
+            ### LOGGING
+            if not batch_idx % 50:
+                print(
+                    "Epoch: %03d/%03d | Batch %04d/%04d | Cost: %.4f"
+                    % (epoch + 1, NUM_EPOCHS, batch_idx, len(train_loader), cost)
+                )
+
+        model.eval()
+        with torch.set_grad_enabled(False):  # save memory during inference
             print(
-                "Epoch: %03d/%03d | Batch %04d/%04d | Cost: %.4f"
-                % (epoch + 1, NUM_EPOCHS, batch_idx, len(train_loader), cost)
+                "Epoch: %03d/%03d | Train: %.3f%%"
+                % (
+                    epoch + 1,
+                    NUM_EPOCHS,
+                    compute_accuracy(model, train_loader, device=DEVICE),
+                )
             )
 
-    model.eval()
+        print("Time elapsed: %.2f min" % ((time.time() - start_time) / 60))
+
+    print("Total Training Time: %.2f min" % ((time.time() - start_time) / 60))
+
     with torch.set_grad_enabled(False):  # save memory during inference
         print(
-            "Epoch: %03d/%03d | Train: %.3f%%"
-            % (
-                epoch + 1,
-                NUM_EPOCHS,
-                compute_accuracy(model, train_loader, device=DEVICE),
-            )
+            "Test accuracy: %.2f%%"
+            % (compute_accuracy(model, test_loader, device=DEVICE))
         )
 
-    print("Time elapsed: %.2f min" % ((time.time() - start_time) / 60))
 
-print("Total Training Time: %.2f min" % ((time.time() - start_time) / 60))
+main()

@@ -1,0 +1,22 @@
+{
+    "conda": {
+        "channels": [
+            "defaults",
+            "conda-forge"
+        ],
+        "dependencies": [
+            "pandas=3.0.1=py313h86c3e14_0",
+            "pip=26.0.1=pyhc872135_0",
+            "python=3.13.12=hb7b561f_100_cp313",
+            {
+                "pip": [
+                    "numpy==2.4.3",
+                    "torch==2.10.0",
+                    "torchvision==0.25.0"
+                ]
+            }
+        ]
+    },
+    "name": "/home/lax/Documents/TaskVineGPU-bench/.venv",
+    "prefix": "/home/lax/Documents/TaskVineGPU-bench/.venv"
+}
