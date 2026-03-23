@@ -27,4 +27,8 @@ Training of the Model and inference of the model
 --------------
 1. Functional Abstractions example is showing wrong output
 2. Futures section have one missing python markdown code block
-3. 
+
+#### Some useful links
+--------------------
+1. https://github.com/huggingface/trl/issues/2262
+2. 
