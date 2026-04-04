@@ -5,7 +5,7 @@ import ndcctools.taskvine as vine
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Create a new manager
-manager = vine.Manager([9123, 9129], name="resnet_trainer")
+manager = vine.Manager([9123, 9129], name="saturate_gpu")
 print(f"Listening on port {manager.port}")
 
 # declare the package and its input file
@@ -16,7 +16,7 @@ python_program = manager.declare_file(
     f"{BASE_DIR}/gpu_saturation_task.py", cache="workflow"
 )
 
-NUMBER_OF_TASKS = 100
+NUMBER_OF_TASKS = 1
 
 # Submit several tasks using that file.
 print("Submitting tasks...")
@@ -26,7 +26,7 @@ for index in range(NUMBER_OF_TASKS):
     # attach the package to the task
     task.add_poncho_package(poncho_pkg)
     task.set_cores(2)
-    task.set_memory(1024)
+    task.set_memory(2048)
     task.set_gpus(1)
     # task.add_feature("NVIDIA RTX A1000 Laptop GPU")
     manager.submit(task)

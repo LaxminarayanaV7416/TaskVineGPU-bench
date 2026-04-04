@@ -84,3 +84,5 @@ At this point, a naive scheduler — which is what TaskVine currently behaves as
 |NVLink         |Direct GPU-to-GPU    |High (900 GB/s)|Poor (Requires same gen)|
 |PCIe P2P       |GPU → Switch → GPU   |Medium (32-64 GB/s)|Good (Standard)    |
 |Host-Mediated  |GPU → RAM → GPU      | Low (Variable)    |Universal (Default)|
+
+* instead of using the `nvidia-smi` we can use `libnvidia-ml.so` to just query what we need, nvidia-smi query runs whole bunch of unneccessary information like cores temperature, blah...

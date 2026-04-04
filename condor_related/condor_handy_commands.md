@@ -19,5 +19,7 @@ condor_gpu_discovery
 # to see all the node names that have GPU's installed
 condor_status -constraint 'GPUs > 0' -af Name GPUs
 
+condor_rm <job_id>
 
+vine_factory -T condor --min-workers=1 --max-workers=10 --gpus 1 --manager-name saturate_gpu
 ```
